@@ -1,0 +1,4 @@
+name = "BrownianExits"
+uuid = "1483388b-22dd-493d-9729-47dd73644de7"
+authors = ["Sam Vermeulen <vermeulen.sam.j@gmail.com>"]
+version = "0.1.0"
