@@ -1,3 +1,5 @@
+[![CI](https://github.com/sam-vermeulen/BrownianExits.jl/actions/workflows/CI.yml/badge.svg)](https://github.com/sam-vermeulen/BrownianExits.jl/actions/workflows/CI.yml)
+
 # Brownian Motion Exit Point Simulation
 
 This Julia package simulates multiple simultaneous Brownian motion paths within a rectangular domain and tracks their exit points. The simulation efficiently handles parallel path generation, exact intersection point calculation, and provides detailed visualizations of the paths.
