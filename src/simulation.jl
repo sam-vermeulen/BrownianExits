@@ -1,0 +1,205 @@
+using Random
+using LinearAlgebra
+using Distributions
+using DataFrames
+using CSV
+using ArgParse
+
+"""
+Simulate multiple simultaneous Brownian motions with a global exit limit.
+
+# Arguments
+- `domain_x`: Tuple defining the x-axis boundaries (min_x, max_x)
+- `domain_y`: Tuple defining the y-axis boundaries (min_y, max_y)
+- `max_global_exits`: Total number of exits allowed before termination
+- `paths_per_thread`: Number of simultaneous paths per thread
+- `step_size`: Size of each step (standard deviation of the normal distribution)
+
+# Returns
+- `path_segments`: DataFrame containing detailed path segment information
+"""
+function simulate_brownian_motions(
+    domain_x::Tuple{Float64, Float64}, 
+    domain_y::Tuple{Float64, Float64}; 
+    max_global_exits::Int = 10000,
+    paths_per_thread::Int = 100,
+    step_size::Float64 = 0.1
+)
+    # Unpack domain boundaries
+    x_min, x_max = domain_x
+    y_min, y_max = domain_y
+
+    # Thread-safe counters
+    path_id_counter = Threads.Atomic{Int}(0)
+    global_exit_counter = Threads.Atomic{Int}(0)
+
+    # Prepare DataFrame to store path segments
+    path_segments = DataFrame(
+        path_id = Int[],
+        step = Int[],
+        start_x = Float64[],
+        start_y = Float64[],
+        end_x = Float64[],
+        end_y = Float64[],
+        has_exited = Bool[],
+        intersection_x = Union{Float64, Missing}[],
+        intersection_y = Union{Float64, Missing}[]
+    )
+
+    # Synchronization primitives
+    path_segments_lock = ReentrantLock()
+    
+    # Parallel simulation of Brownian motions
+    Threads.@threads for _thread_idx in 1:Threads.nthreads()
+        # Local RNG for this thread
+        rng = MersenneTwister(rand(UInt))
+        
+        # State for each active path in this thread
+        active_paths = []
+        
+        # Initialize paths for this thread
+        for _ in 1:paths_per_thread
+            # Get a unique path ID
+            current_path_id = Threads.atomic_add!(path_id_counter, 1)
+            
+            # Random starting position
+            start_x = x_min + rand(rng) * (x_max - x_min)
+            start_y = y_min + rand(rng) * (y_max - y_min)
+            
+            push!(active_paths, (
+                id = current_path_id,
+                x = start_x,
+                y = start_y,
+                step_count = 0
+            ))
+        end
+        
+        # Continue until exit limit reached
+        while !isempty(active_paths) && 
+            Threads.atomic_add!(global_exit_counter, 0) < max_global_exits
+            
+            # Process one step for each active path
+            i = 1
+            while i <= length(active_paths)
+                path = active_paths[i]
+                
+                # Generate step
+                dx = step_size * randn(rng)
+                dy = step_size * randn(rng)
+                
+                new_x = path.x + dx
+                new_y = path.y + dy
+                
+                # Increment step count
+                new_step_count = path.step_count + 1
+                
+                # Check for exit
+                if (new_x < x_min || new_x > x_max || 
+                    new_y < y_min || new_y > y_max)
+
+
+                    # Find intersection point
+                    t = find_exit_point(
+                        path.x, path.y, 
+                        new_x, new_y, 
+                        domain_x, domain_y
+                    )
+                    
+                    # Calculate intersection point
+                    intersection_x = path.x + t * dx
+                    intersection_y = path.y + t * dy
+                    
+                    # Check exit limit
+                    if Threads.atomic_add!(global_exit_counter, 1) >= max_global_exits
+                        break
+                    end
+                
+                    # Record segment with an exit
+                    Threads.lock(path_segments_lock) do
+                        push!(path_segments, (
+                            path_id = path.id,
+                            step = new_step_count,
+                            start_x = path.x,
+                            start_y = path.y,
+                            end_x = new_x,
+                            end_y = new_y,
+                            has_exited = true,
+                            intersection_x = intersection_x,
+                            intersection_y = intersection_y
+                        ))
+                    end
+
+                    # Start new path
+                    new_path_id = Threads.atomic_add!(path_id_counter, 1)
+                    start_x = x_min + rand(rng) * (x_max - x_min)
+                    start_y = y_min + rand(rng) * (y_max - y_min)
+                    
+                    # Replace current path with new one
+                    active_paths[i] = (
+                        id = new_path_id,
+                        x = start_x,
+                        y = start_y,
+                        step_count = 0
+                    )
+                else
+                
+                    # Record segment without an exit
+                    Threads.lock(path_segments_lock) do
+                        push!(path_segments, (
+                            path_id = path.id,
+                            step = new_step_count,
+                            start_x = path.x,
+                            start_y = path.y,
+                            end_x = new_x,
+                            end_y = new_y,
+                            has_exited = false,
+                            intersection_x = missing,
+                            intersection_y = missing
+                        ))
+                    end
+                    
+                    # Update path position
+                    active_paths[i] = (
+                        id = path.id,
+                        x = new_x,
+                        y = new_y,
+                        step_count = new_step_count
+                    )
+                    i += 1
+                end
+            end
+        end
+    end
+
+    return path_segments
+end
+
+"""
+Find the exact point of exit from the domain using line-domain intersection.
+"""
+function find_exit_point(
+    x1::Float64, y1::Float64, 
+    x2::Float64, y2::Float64, 
+    domain_x::Tuple{Float64, Float64}, 
+    domain_y::Tuple{Float64, Float64}
+)
+    x_min, x_max = domain_x
+    y_min, y_max = domain_y
+
+    dx = x2 - x1
+    dy = y2 - y1
+
+    tx_min = (x_min - x1) / dx
+    tx_max = (x_max - x1) / dx
+    ty_min = (y_min - y1) / dy
+    ty_max = (y_max - y1) / dy
+
+    t_candidates = [tx_min, tx_max, ty_min, ty_max]
+    valid_candidates = filter(t -> (
+        0 <= t <= 1 && 
+        x1 + t*dx >= x_min && x1 + t*dx <= x_max &&
+        y1 + t*dy >= y_min && y1 + t*dy <= y_max
+    ), t_candidates)
+
+    return isempty(valid_candidates) ? 1.0 : minimum(valid_candidates)
+end
