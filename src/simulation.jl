@@ -171,7 +171,25 @@ function simulate_brownian_motions(
         end
     end
 
-    return path_segments
+    return remove_non_exiting_paths(path_segments)
+end
+
+function remove_non_exiting_paths(df::DataFrame)
+    # Find all path IDs that have at least one exit
+    exiting_paths = unique(df[df.has_exited, :path_id])
+    
+    # Filter the DataFrame to keep only paths that reached an exit
+    filtered_df = df[in.(df.path_id, Ref(Set(exiting_paths))), :]
+    
+    # Calculate statistics for logging
+    original_paths = length(unique(df.path_id))
+    remaining_paths = length(exiting_paths)
+    removed_paths = original_paths - remaining_paths
+    original_segments = nrow(df)
+    remaining_segments = nrow(filtered_df)
+    removed_segments = original_segments - remaining_segments
+    
+    return filtered_df
 end
 
 """
