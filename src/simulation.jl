@@ -225,7 +225,7 @@ function identify_exit_boundary(
     elseif isapprox(y, y_max, atol=tol)
         return "top", y_max
     else
-        error("Point ($x, $y) is not on any boundary")
+        return "not_sure", missing
     end
 end
 
