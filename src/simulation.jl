@@ -43,7 +43,9 @@ function simulate_brownian_motions(
         end_y = Float64[],
         has_exited = Bool[],
         intersection_x = Union{Float64, Missing}[],
-        intersection_y = Union{Float64, Missing}[]
+        intersection_y = Union{Float64, Missing}[],
+        exit_boundary = Union{String, Missing}[],
+        boundary_value = Union{Float64, Missing}[]
     )
 
     # Synchronization primitives
@@ -109,6 +111,12 @@ function simulate_brownian_motions(
                     intersection_x = path.x + t * dx
                     intersection_y = path.y + t * dy
                     
+                    # Determine which boundary was crossed
+                    exit_boundary, boundary_value = identify_exit_boundary(
+                        intersection_x, intersection_y,
+                        x_min, x_max, y_min, y_max
+                    )
+
                     # Check exit limit
                     if Threads.atomic_add!(global_exit_counter, 1) >= max_global_exits
                         break
@@ -125,7 +133,9 @@ function simulate_brownian_motions(
                             end_y = new_y,
                             has_exited = true,
                             intersection_x = intersection_x,
-                            intersection_y = intersection_y
+                            intersection_y = intersection_y,
+                            exit_boundary = exit_boundary,
+                            boundary_value = boundary_value
                         ))
                     end
 
@@ -154,7 +164,9 @@ function simulate_brownian_motions(
                             end_y = new_y,
                             has_exited = false,
                             intersection_x = missing,
-                            intersection_y = missing
+                            intersection_y = missing,
+                            exit_boundary = missing,
+                            boundary_value = missing
                         ))
                     end
                     
@@ -190,6 +202,31 @@ function remove_non_exiting_paths(df::DataFrame)
     removed_segments = original_segments - remaining_segments
     
     return filtered_df
+end
+
+"""
+Identify which boundary was crossed and its value.
+
+Returns a tuple of (boundary_name, boundary_value) where boundary_name is one of:
+"left", "right", "bottom", "top"
+"""
+function identify_exit_boundary(
+    x::Float64, y::Float64,
+    x_min::Float64, x_max::Float64,
+    y_min::Float64, y_max::Float64;
+    tol::Float64 = 1e-10
+)
+    if isapprox(x, x_min, atol=tol)
+        return "left", x_min
+    elseif isapprox(x, x_max, atol=tol)
+        return "right", x_max
+    elseif isapprox(y, y_min, atol=tol)
+        return "bottom", y_min
+    elseif isapprox(y, y_max, atol=tol)
+        return "top", y_max
+    else
+        error("Point ($x, $y) is not on any boundary")
+    end
 end
 
 """
